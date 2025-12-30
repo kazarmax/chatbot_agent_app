@@ -20,11 +20,11 @@ def init_agent():
     agent = search_agent.init_agent(index, repo_owner, repo_name)
     return agent
 
+st.set_page_config(page_title="AI FAQ Assistant", page_icon="🤖", layout="centered")
 
 agent = init_agent()
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="AI FAQ Assistant", page_icon="🤖", layout="centered")
 st.title("🤖 AI FAQ Assistant")
 st.caption("Ask me anything about the DataTalksClub/faq repository")
 
@@ -42,17 +42,23 @@ for msg in st.session_state.messages:
 def stream_response(prompt: str):
     async def agen():
         async with agent.run_stream(user_prompt=prompt) as result:
-            last_len = 0
             full_text = ""
             async for chunk in result.stream_output(debounce_by=0.01):
-                # stream only the delta
-                new_text = chunk[last_len:]
-                last_len = len(chunk)
-                full_text = chunk
+                if not chunk:
+                    continue
+                if isinstance(chunk, str) and chunk.startswith(full_text):
+                    new_text = chunk[len(full_text):] 
+                    full_text = chunk
+                else:
+                    new_text = str(chunk)
+                    full_text += new_text
                 if new_text:
                     yield new_text
             # log once complete
-            logs.log_interaction_to_file(agent, result.new_messages())
+            try:
+                logs.log_interaction_to_file(agent, result.new_messages())
+            except Exception as e:
+                st.warning(f"Logging failed: {e}")
             st.session_state._last_response = full_text
 
     loop = asyncio.new_event_loop()
@@ -65,6 +71,8 @@ def stream_response(prompt: str):
             yield piece
     except StopAsyncIteration:
         return
+    finally:
+        loop.close()
 
 
 # --- Chat input ---
